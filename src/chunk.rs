@@ -55,6 +55,7 @@ pub struct ProtoType {
     // debug
     pub line_defined: u32,
     pub last_line_defined: u32,
+    //fixed parameters
     pub num_params: u8,
     pub is_vararg: u8,
     pub max_stack_size: u8,
@@ -368,20 +369,23 @@ fn print_detail(p: &ProtoType) {
     }
 }
 
+pub fn print_chunk(path: &dyn ToString) {
+    let mut file = std::fs::File::open(path.to_string()).unwrap();
+    let mut data = Vec::new();
+    file.read_to_end(&mut data).unwrap();
+    let bytes = Bytes::from(data);
+    let arc = un_dump(bytes);
+    let a = arc;
+    list(&*a);
+}
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
     use std::io::Read;
-    use crate::chunk::{un_dump, list};
+    use crate::chunk::{un_dump, list, print_chunk};
 
     #[test]
     fn read_chunk() {
-        let mut file = std::fs::File::open("tests/table.out").unwrap();
-        let mut data = Vec::new();
-        file.read_to_end(&mut data).unwrap();
-        let bytes = Bytes::from(data);
-        let arc = un_dump(bytes);
-        let a = arc;
-        list(&*a);
+        print_chunk(&"tests/table.out");
     }
 }

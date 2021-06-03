@@ -350,7 +350,7 @@ pub fn set_list(i: &Instruction, vm: &mut dyn LuaVM) {
     }
     if b_is_zero {
         let num_reg = vm.register_count() as isize;
-        for j in (num_reg + 1)..(vm.get_top() + 1) {
+        for j in (num_reg + 1)..=vm.get_top() {
             idx += 1;
             vm.push_value(j);
             vm.set_i(a as isize, idx);

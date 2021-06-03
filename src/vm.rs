@@ -13,6 +13,7 @@ pub fn lua_main(file: &dyn ToString){
 #[cfg(test)]
 mod tests {
     use crate::vm::{lua_main};
+    use crate::chunk::print_chunk;
 
     #[test]
     fn simple_vm() {
@@ -20,6 +21,20 @@ mod tests {
     }
     #[test]
     fn function() {
-        lua_main(&"tests/function.out")
+        let path = "tests/function.out";
+        print_chunk(&path);
+        lua_main(&path)
+    }
+    #[test]
+    fn function_return_fix() {
+        let path = "tests/function_return_fix.out";
+        print_chunk(&path);
+        lua_main(&path);
+    }
+    #[test]
+    fn set_list_tail_func() {
+        let path = "tests/set_list_tail_func.out";
+        print_chunk(&path);
+        lua_main(&path);
     }
 }

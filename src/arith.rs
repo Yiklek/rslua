@@ -320,7 +320,7 @@ pub fn random() -> usize {
 }
 #[cfg(test)]
 mod tests {
-    use crate::state::{LuaState, print_stack};
+    use crate::state::{LuaState, print_stack, format_stack};
     use crate::api::LuaApi;
     use crate::arith::{ArithOp, CompareOp};
 
@@ -331,17 +331,27 @@ mod tests {
         state.push_string("2.0".to_string());
         state.push_string("3.0".to_string());
         state.push_number(4.0);
+        assert_eq!(format_stack(&state),"[1][\"2.0\"][\"3.0\"][4]");
         print_stack(&state);
 
         state.arith(ArithOp::ADD);
+        assert_eq!(format_stack(&state),"[1][\"2.0\"][7]");
         print_stack(&state);
+
         state.arith(ArithOp::BNot);
+        assert_eq!(format_stack(&state),"[1][\"2.0\"][-8]");
         print_stack(&state);
+
         state.len(2);
+        assert_eq!(format_stack(&state),"[1][\"2.0\"][-8][3]");
         print_stack(&state);
+
         state.concat(3);
+        assert_eq!(format_stack(&state),"[1][\"2.0-83\"]");
         print_stack(&state);
+
         state.push_boolean(state.compare(1, 2, CompareOp::EQ));
+        assert_eq!(format_stack(&state),"[1][\"2.0-83\"][false]");
         print_stack(&state);
     }
 }

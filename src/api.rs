@@ -371,9 +371,12 @@ impl From<Constant> for LuaValue {
 #[cfg(test)]
 mod tests {
     use crate::vm::lua_main;
+    use crate::chunk::print_chunk;
 
     #[test]
     fn table() {
-        lua_main(&"tests/table.out");
+        let path = "tests/table.out";
+        print_chunk(&path);
+        lua_main(&path);
     }
 }

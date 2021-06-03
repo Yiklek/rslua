@@ -197,10 +197,11 @@ impl LuaState {
         let mut args = stack.pop_n(in_argc);
         stack.pop(); // pop func
         if in_argc > num_params {
-            // varargs
+            //more args
             for _i in num_params..in_argc {
                 new_stack.var_args.push(args.pop().unwrap());
             }
+            //  varargs
             if is_vararg {
                 new_stack.var_args.reverse();
             } else {
@@ -629,7 +630,7 @@ impl LuaApi for LuaState {
     fn call(&mut self, in_argc: usize, out_argc: isize) {
         let val = self.stack().get(-(in_argc as isize + 1));
         if let LuaValue::Closure(c) = val {
-            let source = c.proto.source.clone().unwrap(); // TODO
+            let source = c.proto.source.clone().unwrap_or_else(|| "none".to_string());
             let line = c.proto.line_defined;
             let last_line = c.proto.last_line_defined;
             println!("call {}<{},{}>", source, line, last_line);
@@ -651,31 +652,59 @@ pub(crate) fn print_stack(state: &LuaState) {
     println!();
 }
 
+pub(crate) fn format_stack(state: &LuaState) -> String {
+    let mut r = String::new();
+    let top = state.get_top();
+    for i in 1..=top {
+        let t = state.get(i);
+        let string = format!("[{}]", t);
+        r.push_str(string.as_str());
+    }
+    r
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::state::{LuaState, print_stack};
+    use crate::state::{LuaState, print_stack, format_stack};
     use crate::api::LuaApi;
 
     #[test]
     fn state() {
         let mut state = LuaState::new();
         state.push_boolean(true);
+        assert_eq!(format_stack(&state),"[true]");
         print_stack(&state);
+
         state.push_integer(10);
+        assert_eq!(format_stack(&state),"[true][10]");
         print_stack(&state);
+
         state.push_nil();
+        assert_eq!(format_stack(&state),"[true][10][nil]");
         print_stack(&state);
+
         state.push_string("hello".to_string());
+        assert_eq!(format_stack(&state),"[true][10][nil][\"hello\"]");
         print_stack(&state);
+
         state.push_value(-4);
+        assert_eq!(format_stack(&state),"[true][10][nil][\"hello\"][true]");
         print_stack(&state);
+
         state.replace(3);
+        assert_eq!(format_stack(&state),"[true][10][true][\"hello\"]");
         print_stack(&state);
+
         state.set_top(6);
+        assert_eq!(format_stack(&state),"[true][10][true][\"hello\"][nil][nil]");
         print_stack(&state);
+
         state.remove(-3);
+        assert_eq!(format_stack(&state),"[true][10][true][nil][nil]");
         print_stack(&state);
+
         state.set_top(-5);
+        assert_eq!(format_stack(&state),"[true]");
         print_stack(&state);
     }
 }

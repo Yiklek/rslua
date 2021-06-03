@@ -1,4 +1,4 @@
-use crate::api::{LuaValue, LuaApi, LuaVM, LuaTable, Closure};
+use crate::api::{LuaValue, LuaApi, LuaVM, LuaTable, Closure, RustFn};
 use std::sync::Arc;
 use crate::arith::{ArithOp, arith, CompareOp, compare};
 use crate::vm::PCAddr;
@@ -6,6 +6,7 @@ use crate::chunk::{ProtoType};
 use crate::instruction::{RealInstruction, Instruction, RawOp};
 use std::cell::RefCell;
 use bytes::Bytes;
+use std::ops::DerefMut;
 
 struct LuaStack {
     slots: Vec<LuaValue>,
@@ -13,13 +14,15 @@ struct LuaStack {
     closure: Arc<Closure>,
     var_args: Vec<LuaValue>,
     pc: PCAddr,
+    registry:Arc<RefCell<LuaValue>>
 }
 
 
 impl LuaStack {
-    pub fn new(size: usize,closure:Arc<Closure>) -> LuaStack {
+    pub fn new(size: usize, registry:Arc<RefCell<LuaValue>>,closure: Arc<Closure>) -> LuaStack {
         LuaStack {
             slots: Vec::with_capacity(size),
+            registry,
             closure,
             var_args: vec![],
             pc: 0,
@@ -87,7 +90,7 @@ impl LuaStack {
     }
 
     pub fn abs_index(&self, idx: isize) -> usize {
-        if idx >= 0 {
+        if idx >= 0 || idx <= LUA_REGISTRY_INDEX {
             idx as usize
         } else {
             (idx + self.top() + 1) as usize
@@ -95,11 +98,13 @@ impl LuaStack {
     }
 
     pub fn is_valid(&self, idx: isize) -> bool {
+        if idx == LUA_REGISTRY_INDEX { return true }
         let abs_idx = self.abs_index(idx);
         abs_idx > 0 && abs_idx <= self.abs_top()
     }
 
     pub fn get(&self, idx: isize) -> LuaValue {
+        if idx == LUA_REGISTRY_INDEX { return self.registry.borrow().clone(); }
         let abs_idx = self.abs_index(idx);
         if abs_idx > 0 && abs_idx <= self.abs_top() {
             let idx = abs_idx as usize - 1;
@@ -120,6 +125,10 @@ impl LuaStack {
     // }
 
     pub fn set(&mut self, idx: isize, val: LuaValue) {
+        if idx == LUA_REGISTRY_INDEX {
+            *self.registry.borrow_mut() = val;
+            return;
+        }
         let abs_idx = self.abs_index(idx);
         if abs_idx > 0 && abs_idx <= self.abs_top() {
             let idx = abs_idx as usize - 1;
@@ -141,21 +150,33 @@ impl LuaStack {
 pub struct LuaState {
     // todo LinkList
     stacks: Vec<LuaStack>,
+    registry: Arc<RefCell<LuaValue>>,
 }
+
+const LUA_MIN_STACK: usize = 20;
+const LUA_MAX_STACK: usize = 1000000;
+const LUA_REGISTRY_INDEX: isize = -(LUA_MAX_STACK as isize) - 1000;
+const LUA_R_IDX_GLOBALS: i64 = 2;
+
 
 impl LuaState {
     pub fn new() -> LuaState {
-        Self::with_capacity(20)
+        Self::with_capacity(LUA_MIN_STACK)
     }
     pub fn with_capacity(i: usize) -> LuaState {
-        LuaState { stacks: vec![LuaStack::new(i, Arc::new(Closure::new(Arc::new(ProtoType::new_fake()))))] }
+        let mut table = LuaTable::new(0, 0);
+        table.put(LuaValue::Integer(LUA_R_IDX_GLOBALS), LuaValue::Table(Arc::new(RefCell::new(LuaTable::new(0, 0)))));
+        let mut registry = LuaValue::Table(Arc::new(RefCell::new(table)));
+        let registry = Arc::new(RefCell::new(registry));
+        let stacks = vec![LuaStack::new(i, registry.clone(),Arc::new(Closure::with_proto(Arc::new(ProtoType::new_fake()))))];
+        LuaState { stacks, registry }
     }
     fn stack_mut(&mut self) -> &mut LuaStack {
-        self.stacks.last_mut().expect("must be at least 1 stack.") // TODO ensure at least 1 stack
+        self.stacks.last_mut().expect("must be at least 1 stack.")
     }
 
     fn stack(&self) -> &LuaStack {
-        self.stacks.last().expect("must be at least 1 stack.") // TODO ensure at least 1 stack
+        self.stacks.last().expect("must be at least 1 stack.")
     }
 
     fn push_stack(&mut self, frame: LuaStack) {
@@ -184,13 +205,38 @@ impl LuaState {
             panic!("not a table!");
         }
     }
+    fn call_rust_closure(&mut self, in_argc: usize, out_argc: isize, c: Arc<Closure>) {
+        // create new lua stack
+        let rust_fn = c.rust_fn.expect("rust closure can't be none");
+        let mut new_stack = LuaStack::new(in_argc + LUA_MIN_STACK, self.registry.clone(), c);
+
+        // pass args, pop func
+        if in_argc > 0 {
+            let args = self.stack_mut().pop_n(in_argc);
+            new_stack.push_n(args, in_argc as isize);
+        }
+        self.stack_mut().pop(); // pop func
+
+        // run closure
+        self.push_stack(new_stack);
+        let r = rust_fn(self);
+        new_stack = self.pop_stack();
+
+        // return results
+        if out_argc != 0 {
+            let results = new_stack.pop_n(r);
+            self.stack_mut().check(results.len());
+            self.stack_mut().push_n(results, out_argc);
+        }
+    }
+
     fn call_lua_closure(&mut self, in_argc: usize, out_argc: isize, c: Arc<Closure>) {
         let num_regs = c.proto.max_stack_size as usize;
         let num_params = c.proto.num_params as usize;
         let is_vararg = c.proto.is_vararg == 1;
 
         // create new lua stack
-        let mut new_stack = LuaStack::new(num_regs + 20, c);
+        let mut new_stack = LuaStack::new(num_regs + LUA_MIN_STACK, self.registry.clone(), c);
 
         let stack = self.stack_mut();
         // pass args, pop func
@@ -286,7 +332,7 @@ impl LuaVM for LuaState {
 
     fn load_proto(&mut self, idx: usize) {
         let proto = self.stack().closure.proto.proto_types[idx].clone();
-        let closure = LuaValue::Closure(Arc::new(Closure::new(proto)));
+        let closure = LuaValue::Closure(Arc::new(Closure::with_proto(proto)));
         self.stack_mut().push(closure);
     }
 }
@@ -438,7 +484,15 @@ impl LuaApi for LuaState {
     fn is_function(&self, idx: isize) -> bool {
         match self.get(idx) {
             LuaValue::Function => true,
+            LuaValue::Closure(_) => true,
             _ => false
+        }
+    }
+
+    fn is_rust_function(&self, idx: isize) -> bool {
+        match self.stack().get(idx) {
+            LuaValue::Closure(c) => c.rust_fn.is_some(),
+            _ => false,
         }
     }
 
@@ -482,6 +536,13 @@ impl LuaApi for LuaState {
         }
     }
 
+    fn to_rust_function(&self, idx: isize) -> Option<RustFn> {
+        match self.stack().get(idx) {
+            LuaValue::Closure(c) => c.rust_fn.clone(),
+            _ => None,
+        }
+    }
+
     /* push functions (rust -> stack) */
 
     fn push_nil(&mut self) {
@@ -502,6 +563,18 @@ impl LuaApi for LuaState {
 
     fn push_string(&mut self, s: String) {
         self.stack_mut().push(LuaValue::String(Arc::new(s)));
+    }
+
+    fn push_rust_function(&mut self, f: RustFn) {
+        self.stack_mut().push(LuaValue::Closure(Arc::new(Closure::with_func(f))));
+    }
+
+    fn push_global_table(&mut self) {
+        let value = self.registry.borrow().clone();
+        if let LuaValue::Table(t) = value {
+            let global = t.borrow().get(&LuaValue::Integer(LUA_R_IDX_GLOBALS));
+            self.stack_mut().push(global);
+        };
     }
 
     /* comparison and arithmetic functions */
@@ -591,12 +664,23 @@ impl LuaApi for LuaState {
 
     fn get_field(&mut self, idx: isize, k: String) -> LuaValue {
         let value = self.stack().get(idx);
-        self.get_table_value_by_key(&value,&LuaValue::String(Arc::new(k)))
+        self.get_table_value_by_key(&value, &LuaValue::String(Arc::new(k)))
     }
 
     fn get_i(&mut self, idx: isize, i: i64) -> LuaValue {
         let value = self.stack().get(idx);
         self.get_table_value_by_key(&value, &LuaValue::Integer(i))
+    }
+
+    fn get_global(&mut self, name: String) -> LuaValue {
+        let value = self.registry.borrow().clone();
+        if let LuaValue::Table(r) = value {
+            let t = r.borrow().get(&LuaValue::Integer(LUA_R_IDX_GLOBALS));
+            let k = LuaValue::String(Arc::new(name));
+            self.get_table_value_by_key(&t, &k)
+        } else {
+            LuaValue::None
+        }
     }
 
     fn set_table(&mut self, idx: isize) {
@@ -621,26 +705,44 @@ impl LuaApi for LuaState {
         Self::set_table_kv(&t, LuaValue::Integer(i), v);
     }
 
+    fn set_global(&mut self, name: String) {
+        let value = self.registry.borrow().clone();
+        if let LuaValue::Table(r) = value {
+            let t = r.borrow().get(&LuaValue::Integer(LUA_R_IDX_GLOBALS));
+            let v = self.stack_mut().pop();
+            let k = LuaValue::String(Arc::new(name));
+            Self::set_table_kv(&t,k,v);
+        }
+    }
+
+    fn register(&mut self, name: String, f: RustFn) {
+        self.push_rust_function(f);
+        self.set_global(name);
+    }
+
     fn load(&mut self, chunk: Bytes, _chunk_name: &str, _mode: &str) {
         let proto = crate::chunk::un_dump(chunk);
-        let c = LuaValue::Closure(Arc::new(Closure::new(proto)));
+        let c = LuaValue::Closure(Arc::new(Closure::with_proto(proto)));
         self.stack_mut().push(c);
     }
 
     fn call(&mut self, in_argc: usize, out_argc: isize) {
         let val = self.stack().get(-(in_argc as isize + 1));
         if let LuaValue::Closure(c) = val {
-            let source = c.proto.source.clone().unwrap_or_else(|| "none".to_string());
-            let line = c.proto.line_defined;
-            let last_line = c.proto.last_line_defined;
-            println!("call {}<{},{}>", source, line, last_line);
-            self.call_lua_closure(in_argc, out_argc, c);
+            if c.rust_fn.is_some() {
+                self.call_rust_closure(in_argc, out_argc, c);
+            } else {
+                // let source = c.proto.source.clone().unwrap_or_else(|| "none".to_string());
+                // let line = c.proto.line_defined;
+                // let last_line = c.proto.last_line_defined;
+                // println!("call {}<{},{}>", source, line, last_line);
+                self.call_lua_closure(in_argc, out_argc, c);
+            }
         } else {
             panic!("not function!");
         }
     }
 }
-
 
 
 pub(crate) fn print_stack(state: &LuaState) {
@@ -672,39 +774,39 @@ mod tests {
     fn state() {
         let mut state = LuaState::new();
         state.push_boolean(true);
-        assert_eq!(format_stack(&state),"[true]");
+        assert_eq!(format_stack(&state), "[true]");
         print_stack(&state);
 
         state.push_integer(10);
-        assert_eq!(format_stack(&state),"[true][10]");
+        assert_eq!(format_stack(&state), "[true][10]");
         print_stack(&state);
 
         state.push_nil();
-        assert_eq!(format_stack(&state),"[true][10][nil]");
+        assert_eq!(format_stack(&state), "[true][10][nil]");
         print_stack(&state);
 
         state.push_string("hello".to_string());
-        assert_eq!(format_stack(&state),"[true][10][nil][\"hello\"]");
+        assert_eq!(format_stack(&state), "[true][10][nil][\"hello\"]");
         print_stack(&state);
 
         state.push_value(-4);
-        assert_eq!(format_stack(&state),"[true][10][nil][\"hello\"][true]");
+        assert_eq!(format_stack(&state), "[true][10][nil][\"hello\"][true]");
         print_stack(&state);
 
         state.replace(3);
-        assert_eq!(format_stack(&state),"[true][10][true][\"hello\"]");
+        assert_eq!(format_stack(&state), "[true][10][true][\"hello\"]");
         print_stack(&state);
 
         state.set_top(6);
-        assert_eq!(format_stack(&state),"[true][10][true][\"hello\"][nil][nil]");
+        assert_eq!(format_stack(&state), "[true][10][true][\"hello\"][nil][nil]");
         print_stack(&state);
 
         state.remove(-3);
-        assert_eq!(format_stack(&state),"[true][10][true][nil][nil]");
+        assert_eq!(format_stack(&state), "[true][10][true][nil][nil]");
         print_stack(&state);
 
         state.set_top(-5);
-        assert_eq!(format_stack(&state),"[true]");
+        assert_eq!(format_stack(&state), "[true]");
         print_stack(&state);
     }
 }

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use crate::chunk::{Constant, ProtoType};
 use crate::api::LuaValue::Integer;
-use std::fmt::{Display, Formatter};
-use crate::arith::{ArithOp, CompareOp};
+use std::fmt::{Display, Formatter, Debug};
+use crate::arith::{ArithOp, CompareOp, random};
 use std::cell::RefCell;
 use crate::vm::PCAddr;
 use crate::instruction::RealInstruction;
@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use crate::{arith};
 use bytes::Bytes;
+use std::ops::Deref;
 
 pub trait LuaApi {
     /* basic stack manipulation */
@@ -38,6 +39,7 @@ pub trait LuaApi {
     fn is_table(&self, idx: isize) -> bool;
     fn is_thread(&self, idx: isize) -> bool;
     fn is_function(&self, idx: isize) -> bool;
+    fn is_rust_function(&self, idx: isize) -> bool;
     fn to_boolean(&self, idx: isize) -> bool;
     fn to_integer(&self, idx: isize) -> i64;
     fn to_integer_x(&self, idx: isize) -> Option<i64>;
@@ -45,12 +47,15 @@ pub trait LuaApi {
     fn to_number_x(&self, idx: isize) -> Option<f64>;
     fn to_string(&self, idx: isize) -> String;
     fn to_string_x(&self, idx: isize) -> Option<String>;
+    fn to_rust_function(&self, idx: isize) -> Option<RustFn>;
     /* push functions (rust -> stack) */
     fn push_nil(&mut self);
     fn push_boolean(&mut self, b: bool);
     fn push_integer(&mut self, n: i64);
     fn push_number(&mut self, n: f64);
     fn push_string(&mut self, s: String);
+    fn push_rust_function(&mut self, f: RustFn);
+    fn push_global_table(&mut self);
     /* comparison and arithmetic functions */
     fn arith(&mut self, op: ArithOp);
     fn compare(&self, idx1: isize, idx2: isize, op: CompareOp) -> bool;
@@ -63,10 +68,13 @@ pub trait LuaApi {
     fn get_table(&mut self, idx: isize) -> LuaValue;
     fn get_field(&mut self, idx: isize, k: String) -> LuaValue;
     fn get_i(&mut self, idx: isize, i: i64) -> LuaValue;
+    fn get_global(&mut self, name: String) -> LuaValue;
     /* set functions (stack -> Lua) */
     fn set_table(&mut self, idx: isize);
     fn set_field(&mut self, idx: isize, k: String);
     fn set_i(&mut self, idx: isize, i: i64);
+    fn set_global(&mut self, name: String);
+    fn register(&mut self, name: String, f: RustFn);
     /*function*/
     fn load(&mut self, chunk: Bytes, chunk_name: &str, mode: &str);
     fn call(&mut self, in_argc: usize, out_argc: isize);
@@ -199,14 +207,44 @@ fn to_index(key: &LuaValue) -> Option<usize> {
     None
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Closure {
-    pub(crate) proto: Arc<ProtoType>
+    pub(crate) proto: Arc<ProtoType>,
+    pub(crate) rust_fn: Option<RustFn>,
+    rdm: usize,
+}
+
+impl Debug for Closure {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Closure")
+            .field("proto", &*self.proto)
+            .field("rust_fn", &"rust_fn")
+            .field("rdm", &self.rdm)
+            .finish()
+    }
+}
+
+//todo derive hash
+impl Hash for Closure {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.rdm.hash(state);
+    }
 }
 
 impl Closure {
-    pub fn new(proto: Arc<ProtoType>) -> Closure {
-        Closure { proto }
+    pub fn with_proto(proto: Arc<ProtoType>) -> Closure {
+        Closure {
+            proto,
+            rust_fn: None,
+            rdm: random(),
+        }
+    }
+    pub fn with_func(f: RustFn) -> Closure {
+        Closure {
+            proto: Arc::new(ProtoType::new_fake()),
+            rust_fn: Some(f),
+            rdm: random(),
+        }
     }
 }
 
@@ -259,6 +297,7 @@ impl Hash for LuaValue {
             LuaValue::Number(n) => n.to_bits().hash(state),
             LuaValue::String(s) => s.hash(state),
             LuaValue::Table(t) => t.borrow().hash(state),
+            LuaValue::Closure(c) => c.hash(state),
             _ => {}
         }
     }
@@ -367,6 +406,8 @@ impl From<Constant> for LuaValue {
     }
 }
 
+// pub type RustFn = Arc<Box<dyn FnMut(&mut dyn LuaVM) -> usize>>;
+pub type RustFn = fn(&mut dyn LuaVM) -> usize;
 
 #[cfg(test)]
 mod tests {

@@ -475,3 +475,15 @@ pub fn self_(i: &Instruction, vm: &mut dyn LuaVM) {
     vm.get_table(b as isize);
     vm.replace(a as isize);
 }
+
+// R(A) := UpValue[B][RK(C)]
+pub fn get_tab_up(i: &Instruction, vm: &mut dyn LuaVM) {
+    let (mut a, _, c) = i.abc();
+    a += 1;
+
+    vm.push_global_table();
+    vm.get_rk(c as isize);
+    vm.get_table(-2);
+    vm.replace(a as isize);
+    vm.pop(1);
+}

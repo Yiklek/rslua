@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::rc::Rc;
 use bytes::{Bytes, Buf};
 use crate::instruction::{RealInstruction, Instruction, OpMode, OpArgMode};
 use std::io::Read;
@@ -62,7 +62,7 @@ pub struct ProtoType {
     pub code: Vec<RealInstruction>,
     pub constants: Vec<Constant>,
     pub up_values: Vec<UpValue>,
-    pub proto_types: Vec<Arc<ProtoType>>,
+    pub proto_types: Vec<Rc<ProtoType>>,
     // debug
     pub line_info: Vec<u32>,
     // debug
@@ -116,14 +116,14 @@ pub enum Constant {
     String(String),
 }
 
-pub(crate) fn un_dump(bs: Bytes) -> Arc<ProtoType> {
+pub(crate) fn un_dump(bs: Bytes) -> Rc<ProtoType> {
     let mut reader = ChunkReader::new(bs);
     reader.check_header();
     reader.read_byte();
     reader.read_proto()
 }
 
-pub(crate) fn un_dump_file(file_path: &dyn ToString) -> Arc<ProtoType> {
+pub(crate) fn un_dump_file(file_path: &dyn ToString) -> Rc<ProtoType> {
     let mut file = std::fs::File::open(file_path.to_string()).unwrap();
     let mut data = Vec::new();
     file.read_to_end(&mut data).unwrap();
@@ -219,13 +219,13 @@ impl ChunkReader {
         assert_eq!(self.read_lua_number(), constants::LUA_C_NUM, "float format mismatch!");
     }
 
-    pub fn read_proto(&mut self) -> Arc<ProtoType> {
+    pub fn read_proto(&mut self) -> Rc<ProtoType> {
         self.read_proto0(None)
     }
 
-    fn read_proto0(&mut self, parent_source: Option<String>) -> Arc<ProtoType> {
+    fn read_proto0(&mut self, parent_source: Option<String>) -> Rc<ProtoType> {
         let source = self.read_string0().or(parent_source);
-        Arc::new(ProtoType {
+        Rc::new(ProtoType {
             source: source.clone(), // debug
             line_defined: self.read_u32(),
             last_line_defined: self.read_u32(),
@@ -380,8 +380,6 @@ pub fn print_chunk(path: &dyn ToString) {
 }
 #[cfg(test)]
 mod tests {
-    use bytes::Bytes;
-    use std::io::Read;
     use crate::chunk::{un_dump, list, print_chunk};
 
     #[test]

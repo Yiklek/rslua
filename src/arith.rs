@@ -184,7 +184,7 @@ pub enum ArithOp {
     BNot, //
 }
 impl_enum_from!(u8, ArithOp);
-pub fn arith(a: &LuaValue, b: &LuaValue, op: ArithOp) -> Option<LuaValue> {
+pub(crate) fn arith(a: &LuaValue, b: &LuaValue, op: ArithOp) -> Option<LuaValue> {
     let iop = OPS[op as usize].0;
     let fop = OPS[op as usize].1;
     if fop == none_f {
@@ -226,7 +226,7 @@ impl_enum_from!(u8,CompareOp);
 
 
 
-pub fn compare(a: &LuaValue, b: &LuaValue, op: CompareOp) -> Option<bool> {
+pub(crate) fn compare(a: &LuaValue, b: &LuaValue, op: CompareOp) -> Option<bool> {
     match op {
         CompareOp::EQ => Some(eq(a, b)),
         CompareOp::LT => lt(a, b),

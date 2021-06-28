@@ -1,18 +1,18 @@
-use std::sync::Arc;
-use crate::chunk::{Constant, ProtoType};
 use crate::api::LuaValue::Integer;
-use std::fmt::{Display, Formatter, Debug};
-use crate::arith::{ArithOp, CompareOp, random};
-use std::cell::RefCell;
-use crate::vm::PCAddr;
+use crate::arith;
+use crate::arith::{random, ArithOp, CompareOp};
+use crate::chunk::{Constant, ProtoType};
 use crate::instruction::RealInstruction;
-use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
-use crate::{arith};
+use crate::vm::PCAddr;
 use bytes::Bytes;
+use std::cell::{Ref, RefCell, RefMut};
+use std::collections::HashMap;
+use std::fmt::{Debug, Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::ops::Deref;
+use std::rc::Rc;
 
-pub trait LuaApi {
+pub(crate) trait LuaApi {
     /* basic stack manipulation */
     fn get_top(&self) -> isize;
     fn abs_index(&self, idx: isize) -> usize;
@@ -26,8 +26,8 @@ pub trait LuaApi {
     fn rotate(&mut self, idx: isize, n: isize);
     fn set_top(&mut self, idx: isize);
     /* access functions (stack -> rust) */
-    fn type_name(&self, tp: LuaValue) -> &'static str;
-    fn get(&self, idx: isize) -> LuaValue;
+    fn type_name(&self, tp: SharedLuaValue) -> &'static str;
+    fn get(&self, idx: isize) -> SharedLuaValue;
     // `type` is a keyword
     fn is_none(&self, idx: isize) -> bool;
     fn is_nil(&self, idx: isize) -> bool;
@@ -65,10 +65,10 @@ pub trait LuaApi {
     /* get functions (Lua -> stack) */
     fn new_table(&mut self);
     fn create_table(&mut self, arr: usize, rec: usize);
-    fn get_table(&mut self, idx: isize) -> LuaValue;
-    fn get_field(&mut self, idx: isize, k: String) -> LuaValue;
-    fn get_i(&mut self, idx: isize, i: i64) -> LuaValue;
-    fn get_global(&mut self, name: String) -> LuaValue;
+    fn get_table(&mut self, idx: isize) -> SharedLuaValue;
+    fn get_field(&mut self, idx: isize, k: String) -> SharedLuaValue;
+    fn get_i(&mut self, idx: isize, i: i64) -> SharedLuaValue;
+    fn get_global(&mut self, name: String) -> SharedLuaValue;
     /* set functions (stack -> Lua) */
     fn set_table(&mut self, idx: isize);
     fn set_field(&mut self, idx: isize, k: String);
@@ -80,7 +80,7 @@ pub trait LuaApi {
     fn call(&mut self, in_argc: usize, out_argc: isize);
 }
 
-pub trait LuaVM: LuaApi {
+pub(crate) trait LuaVM: LuaApi {
     fn pc(&self) -> PCAddr;
     fn add_pc(&mut self, n: isize);
     fn fetch(&mut self) -> RealInstruction;
@@ -92,9 +92,9 @@ pub trait LuaVM: LuaApi {
 }
 
 #[derive(Clone, Debug)]
-pub struct LuaTable {
-    arr: Vec<LuaValue>,
-    map: HashMap<LuaValue, LuaValue>,
+pub(crate) struct LuaTable {
+    arr: Vec<SharedLuaValue>,
+    map: HashMap<SharedLuaValue, SharedLuaValue>,
     rdm: usize, // hash code
 }
 
@@ -117,8 +117,8 @@ impl LuaTable {
         self.arr.len()
     }
 
-    pub fn get(&self, key: &LuaValue) -> LuaValue {
-        if let Some(idx) = to_index(key) {
+    pub fn get(&self, key: &SharedLuaValue) -> SharedLuaValue {
+        if let Some(idx) = to_index(&key.borrow()) {
             if idx <= self.arr.len() {
                 return self.arr[idx - 1].clone(); // TODO
             }
@@ -126,24 +126,24 @@ impl LuaTable {
         if let Some(val) = self.map.get(key) {
             val.clone() // TODO
         } else {
-            LuaValue::Nil
+            SharedLuaValue::from(Rc::new(RefCell::new(LuaValue::Nil)))
         }
     }
 
-    pub fn put(&mut self, key: LuaValue, val: LuaValue) {
-        if key.is_nil() {
+    pub fn put(&mut self, key: SharedLuaValue, val: SharedLuaValue) {
+        if key.borrow().is_nil() {
             panic!("table index is nil!");
         }
-        if let LuaValue::Number(n) = key {
+        if let LuaValue::Number(n) = key.borrow().deref() {
             if n.is_nan() {
                 panic!("table index is NaN!");
             }
         }
 
-        if let Some(idx) = to_index(&key) {
+        if let Some(idx) = to_index(&key.borrow()) {
             let arr_len = self.arr.len();
             if idx <= arr_len {
-                let val_is_nil = val.is_nil();
+                let val_is_nil = val.borrow().is_nil();
                 self.arr[idx - 1] = val;
                 if idx == arr_len && val_is_nil {
                     self.shrink_array();
@@ -152,7 +152,7 @@ impl LuaTable {
             }
             if idx == arr_len + 1 {
                 self.map.remove(&key);
-                if !val.is_nil() {
+                if !val.borrow().is_nil() {
                     self.arr.push(val);
                     self.expand_array();
                 }
@@ -160,7 +160,7 @@ impl LuaTable {
             }
         }
 
-        if !val.is_nil() {
+        if !val.borrow().is_nil() {
             self.map.insert(key, val);
         } else {
             self.map.remove(&key);
@@ -169,7 +169,8 @@ impl LuaTable {
 
     fn shrink_array(&mut self) {
         while !self.arr.is_empty() {
-            if self.arr.last().unwrap().is_nil() {
+            let a: &SharedLuaValue = self.arr.last().unwrap();
+            if a.borrow().is_nil() {
                 self.arr.pop();
             } else {
                 break;
@@ -180,7 +181,7 @@ impl LuaTable {
     fn expand_array(&mut self) {
         let mut idx = self.arr.len() + 1;
         loop {
-            let key = LuaValue::Integer(idx as i64);
+            let key = SharedLuaValue::from(LuaValue::Integer(idx as i64));
             if self.map.contains_key(&key) {
                 let val = self.map.remove(&key).unwrap();
                 self.arr.push(val);
@@ -208,8 +209,8 @@ fn to_index(key: &LuaValue) -> Option<usize> {
 }
 
 #[derive(Clone)]
-pub struct Closure {
-    pub(crate) proto: Arc<ProtoType>,
+pub(crate) struct Closure {
+    pub(crate) proto: Rc<ProtoType>,
     pub(crate) rust_fn: Option<RustFn>,
     rdm: usize,
 }
@@ -232,16 +233,16 @@ impl Hash for Closure {
 }
 
 impl Closure {
-    pub fn with_proto(proto: Arc<ProtoType>) -> Closure {
+    pub(crate) fn with_proto(proto: Rc<ProtoType>) -> Closure {
         Closure {
             proto,
             rust_fn: None,
             rdm: random(),
         }
     }
-    pub fn with_func(f: RustFn) -> Closure {
+    pub(crate) fn with_func(f: RustFn) -> Closure {
         Closure {
-            proto: Arc::new(ProtoType::new_fake()),
+            proto: Rc::new(ProtoType::new_fake()),
             rust_fn: Some(f),
             rdm: random(),
         }
@@ -249,17 +250,17 @@ impl Closure {
 }
 
 #[derive(Clone, Debug)]
-pub enum LuaValue {
+pub(crate) enum LuaValue {
     None,
     Nil,
     Bool(bool),
     LightUserData,
     Number(f64),
     Integer(i64),
-    String(Arc<String>),
-    Table(Arc<RefCell<LuaTable>>),
+    String(String),
+    Table(LuaTable),
     Function,
-    Closure(Arc<Closure>),
+    Closure(Closure),
     UserData,
     Thread,
 }
@@ -277,7 +278,7 @@ impl PartialEq for LuaValue {
         } else if let (LuaValue::String(x), LuaValue::String(y)) = (self, other) {
             x == y
         } else if let (LuaValue::Table(x), LuaValue::Table(y)) = (self, other) {
-            Arc::ptr_eq(x, y)
+            x.rdm == y.rdm
         } else {
             false
         }
@@ -296,7 +297,7 @@ impl Hash for LuaValue {
             LuaValue::Integer(i) => i.hash(state),
             LuaValue::Number(n) => n.to_bits().hash(state),
             LuaValue::String(s) => s.hash(state),
-            LuaValue::Table(t) => t.borrow().hash(state),
+            LuaValue::Table(t) => t.hash(state),
             LuaValue::Closure(c) => c.hash(state),
             _ => {}
         }
@@ -324,7 +325,7 @@ impl Display for LuaValue {
 }
 
 impl LuaValue {
-    pub fn name(&self) -> &'static str {
+    pub(crate) fn name(&self) -> &'static str {
         match self {
             LuaValue::None => "no value",
             LuaValue::Nil => "nil",
@@ -340,13 +341,14 @@ impl LuaValue {
             LuaValue::Thread => "thread",
         }
     }
-    pub fn is_nil(&self) -> bool {
+    pub(crate) fn is_nil(&self) -> bool {
         match self {
             LuaValue::Nil => true,
             _ => false,
         }
     }
-    pub fn to_boolean(&self) -> bool {
+
+    pub(crate) fn to_boolean(&self) -> bool {
         match self {
             LuaValue::Nil => false,
             LuaValue::Bool(b) => *b, // TODO
@@ -355,7 +357,7 @@ impl LuaValue {
     }
 
     // http://www.lua.org/manual/5.3/manual.html#3.4.3
-    pub fn to_number(&self) -> Option<f64> {
+    pub(crate) fn to_number(&self) -> Option<f64> {
         match self {
             LuaValue::Integer(i) => Some(*i as f64),
             LuaValue::Number(n) => Some(*n),
@@ -365,13 +367,46 @@ impl LuaValue {
     }
 
     // http://www.lua.org/manual/5.3/manual.html#3.4.3
-    pub fn to_integer(&self) -> Option<i64> {
+    pub(crate) fn to_integer(&self) -> Option<i64> {
         match self {
             LuaValue::Integer(i) => Some(*i),
             LuaValue::Number(n) => float_to_integer(*n),
             LuaValue::String(s) => string_to_integer(&*s),
             _ => None,
         }
+    }
+}
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub(crate) struct SharedLuaValue(Rc<RefCell<LuaValue>>);
+impl Display for SharedLuaValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        <LuaValue as Display>::fmt(self.borrow().deref(), f)
+    }
+}
+impl Hash for SharedLuaValue {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.borrow().hash(state)
+    }
+}
+impl SharedLuaValue {
+    #[inline]
+    pub(crate) fn borrow(&self) -> Ref<LuaValue> {
+        self.0.borrow()
+    }
+    #[inline]
+    pub(crate) fn borrow_mut(&self) -> RefMut<LuaValue> {
+        self.0.borrow_mut()
+    }
+}
+
+impl From<Rc<RefCell<LuaValue>>> for SharedLuaValue {
+    fn from(val: Rc<RefCell<LuaValue>>) -> Self {
+        SharedLuaValue(val)
+    }
+}
+impl From<LuaValue> for SharedLuaValue {
+    fn from(val: LuaValue) -> Self {
+        SharedLuaValue(Rc::new(RefCell::new(val)))
     }
 }
 
@@ -398,21 +433,21 @@ impl From<Constant> for LuaValue {
     fn from(c: Constant) -> Self {
         match c {
             Constant::Integer(i) => Integer(i),
-            Constant::String(s) => LuaValue::String(Arc::new(s)),
+            Constant::String(s) => LuaValue::String(s),
             Constant::Nil => LuaValue::Nil,
             Constant::Boolean(b) => LuaValue::Bool(b),
-            Constant::Number(f) => LuaValue::Number(f)
+            Constant::Number(f) => LuaValue::Number(f),
         }
     }
 }
 
 // pub type RustFn = Arc<Box<dyn FnMut(&mut dyn LuaVM) -> usize>>;
-pub type RustFn = fn(&mut dyn LuaVM) -> usize;
+pub(crate) type RustFn = fn(&mut dyn LuaVM) -> usize;
 
 #[cfg(test)]
 mod tests {
-    use crate::vm::lua_main;
     use crate::chunk::print_chunk;
+    use crate::vm::lua_main;
 
     #[test]
     fn table() {

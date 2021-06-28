@@ -143,12 +143,16 @@ type OpAction = fn(&Instruction, &mut dyn LuaVM);
 
 const OP_CODE_LEN :usize = 6;
 const ABC_A_LEN :usize = 8;
+#[allow(dead_code)]
 const ABC_B_LEN :usize = 9;
 const ABC_C_LEN :usize = 9;
 const ABX_A_LEN :usize = 8;
 const ABX_BX_LEN :usize = 18;
+#[allow(dead_code)]
 const A_SBX_A_LEN :usize = 8;
+#[allow(dead_code)]
 const A_SBX_SBX_LEN :usize = 18;
+#[allow(dead_code)]
 const AX_AX_LEN :usize = 26;
 const MAX_ARG_BX: usize = (1 << ABX_BX_LEN) - 1;
 const MAX_ARG_SBX: usize = MAX_ARG_BX >> 1;
@@ -203,7 +207,7 @@ impl Instruction{
     pub fn ax(&self) -> UnSignedOperand {
         (self.0 >> OP_CODE_LEN) as UnSignedOperand
     }
-    pub fn execute(&self, vm: &mut dyn LuaVM) {
+    pub(crate) fn execute(&self, vm: &mut dyn LuaVM) {
         let action = self.op_code().action;
         action(self, vm);
     }

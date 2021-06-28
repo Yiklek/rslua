@@ -5,7 +5,7 @@ use crate::arith::{ArithOp, CompareOp, fb2int};
 
 
 // R(A) := R(B)
-pub fn move_(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn move_(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, mut b, _) = i.abc();
     a += 1;
     b += 1;
@@ -14,7 +14,7 @@ pub fn move_(i: &Instruction, vm: &mut dyn LuaVM) {
 }
 
 // pc+=sBx; if (A) close all upvalues >= R(A - 1)
-pub fn jmp(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn jmp(i: &Instruction, vm: &mut dyn LuaVM) {
     let (a, sbx) = i.a_sbx();
 
     vm.add_pc(sbx as isize);
@@ -25,7 +25,7 @@ pub fn jmp(i: &Instruction, vm: &mut dyn LuaVM) {
 
 
 // R(A), R(A+1), ..., R(A+B) := nil
-pub fn load_nil(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn load_nil(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, b, _) = i.abc();
     a += 1;
 
@@ -37,7 +37,7 @@ pub fn load_nil(i: &Instruction, vm: &mut dyn LuaVM) {
 }
 
 // R(A) := (bool)B; if (C) pc++
-pub fn load_bool(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn load_bool(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, b, c) = i.abc();
     a += 1;
 
@@ -50,7 +50,7 @@ pub fn load_bool(i: &Instruction, vm: &mut dyn LuaVM) {
 }
 
 // R(A) := Kst(Bx)
-pub fn load_k(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn load_k(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, bx) = i.a_bx();
     a += 1;
 
@@ -59,7 +59,7 @@ pub fn load_k(i: &Instruction, vm: &mut dyn LuaVM) {
 }
 
 // R(A) := Kst(extra arg)
-pub fn load_kx(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn load_kx(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, _) = i.a_bx();
     a += 1;
     let ax = Instruction(vm.fetch()).ax();
@@ -73,71 +73,71 @@ pub fn load_kx(i: &Instruction, vm: &mut dyn LuaVM) {
 /* arith */
 
 // +
-pub fn add(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn add(i: &Instruction, vm: &mut dyn LuaVM) {
     binary_arith(i, vm, ArithOp::ADD)
 }
 
 // -
-pub fn sub(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn sub(i: &Instruction, vm: &mut dyn LuaVM) {
     binary_arith(i, vm, ArithOp::SUB)
 }
 
 // *
-pub fn mul(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn mul(i: &Instruction, vm: &mut dyn LuaVM) {
     binary_arith(i, vm, ArithOp::MUL)
 }
 
 // %
-pub fn mod_(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn mod_(i: &Instruction, vm: &mut dyn LuaVM) {
     binary_arith(i, vm, ArithOp::MOD)
 }
 
 // ^
-pub fn pow(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn pow(i: &Instruction, vm: &mut dyn LuaVM) {
     binary_arith(i, vm, ArithOp::POW)
 }
 
 // /
-pub fn div(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn div(i: &Instruction, vm: &mut dyn LuaVM) {
     binary_arith(i, vm, ArithOp::DIV)
 }
 
 // //
-pub fn idiv(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn idiv(i: &Instruction, vm: &mut dyn LuaVM) {
     binary_arith(i, vm, ArithOp::IDIV)
 }
 
 // &
-pub fn band(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn band(i: &Instruction, vm: &mut dyn LuaVM) {
     binary_arith(i, vm, ArithOp::BAnd)
 }
 
 // |
-pub fn bor(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn bor(i: &Instruction, vm: &mut dyn LuaVM) {
     binary_arith(i, vm, ArithOp::BOr)
 }
 
 // ~
-pub fn b_xor(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn b_xor(i: &Instruction, vm: &mut dyn LuaVM) {
     binary_arith(i, vm, ArithOp::BXor)
 }
 
 // <<
-pub fn shl(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn shl(i: &Instruction, vm: &mut dyn LuaVM) {
     binary_arith(i, vm, ArithOp::SHL)
 }
 
 // >>
-pub fn shr(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn shr(i: &Instruction, vm: &mut dyn LuaVM) {
     binary_arith(i, vm, ArithOp::SHR)
 }
 
 // -
-pub fn unm(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn unm(i: &Instruction, vm: &mut dyn LuaVM) {
     unary_arith(i, vm, ArithOp::UNM)
 }
 
-pub fn b_not(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn b_not(i: &Instruction, vm: &mut dyn LuaVM) {
     unary_arith(i, vm, ArithOp::BNot)
 }
 
@@ -165,17 +165,17 @@ fn unary_arith(i: &Instruction, vm: &mut dyn LuaVM, op: ArithOp) {
 
 /* compare */
 
-pub fn eq(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn eq(i: &Instruction, vm: &mut dyn LuaVM) {
     compare(i, vm, CompareOp::EQ)
 }
 
 // ==
-pub fn lt(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn lt(i: &Instruction, vm: &mut dyn LuaVM) {
     compare(i, vm, CompareOp::LT)
 }
 
 // <
-pub fn le(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn le(i: &Instruction, vm: &mut dyn LuaVM) {
     compare(i, vm, CompareOp::LE)
 } // <=
 
@@ -194,7 +194,7 @@ fn compare(i: &Instruction, vm: &mut dyn LuaVM, op: CompareOp) {
 /* logical */
 
 // R(A) := not R(B)
-pub fn not(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn not(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, mut b, _) = i.abc();
     a += 1;
     b += 1;
@@ -204,7 +204,7 @@ pub fn not(i: &Instruction, vm: &mut dyn LuaVM) {
 }
 
 // if not (R(A) <=> C) then pc++
-pub fn test(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn test(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, _, c) = i.abc();
     a += 1;
 
@@ -214,7 +214,7 @@ pub fn test(i: &Instruction, vm: &mut dyn LuaVM) {
 }
 
 // if (R(B) <=> C) then R(A) := R(B) else pc++
-pub fn test_set(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn test_set(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, mut b, c) = i.abc();
     a += 1;
     b += 1;
@@ -229,7 +229,7 @@ pub fn test_set(i: &Instruction, vm: &mut dyn LuaVM) {
 /* len & concat */
 
 // R(A) := length of R(B)
-pub fn length(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn length(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, mut b, _) = i.abc();
     a += 1;
     b += 1;
@@ -239,7 +239,7 @@ pub fn length(i: &Instruction, vm: &mut dyn LuaVM) {
 }
 
 // R(A) := R(B).. ... ..R(C)
-pub fn concat(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn concat(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, mut b, mut c) = i.abc();
     a += 1;
     b += 1;
@@ -255,7 +255,7 @@ pub fn concat(i: &Instruction, vm: &mut dyn LuaVM) {
 }
 
 // R(A)-=R(A+2); pc+=sBx
-pub fn for_prep(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn for_prep(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, sbx) = i.a_sbx();
     a += 1;
 
@@ -270,7 +270,7 @@ pub fn for_prep(i: &Instruction, vm: &mut dyn LuaVM) {
 // if R(A) <?= R(A+1) then {
 //   pc+=sBx; R(A+3)=R(A)
 // }
-pub fn for_loop(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn for_loop(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, sbx) = i.a_sbx();
     a += 1;
 
@@ -294,7 +294,7 @@ pub fn for_loop(i: &Instruction, vm: &mut dyn LuaVM) {
 const SET_LIST_PER_FLUSH: u32 = 50;
 
 // R(A) := {} (size = B,C)
-pub fn new_table(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn new_table(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, b, c) = i.abc();
     a += 1;
 
@@ -305,7 +305,7 @@ pub fn new_table(i: &Instruction, vm: &mut dyn LuaVM) {
 }
 
 // R(A) := R(B)[RK(C)]
-pub fn get_table(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn get_table(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, mut b, c) = i.abc();
     a += 1;
     b += 1;
@@ -316,7 +316,7 @@ pub fn get_table(i: &Instruction, vm: &mut dyn LuaVM) {
 }
 
 // R(A)[RK(B)] := RK(C)
-pub fn set_table(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn set_table(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, b, c) = i.abc();
     a += 1;
 
@@ -326,7 +326,7 @@ pub fn set_table(i: &Instruction, vm: &mut dyn LuaVM) {
 }
 
 // R(A)[(C-1)*FPF+i] := R(A+i), 1 <= i <= B
-pub fn set_list(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn set_list(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, mut b, mut c) = i.abc();
     a += 1;
 
@@ -363,7 +363,7 @@ pub fn set_list(i: &Instruction, vm: &mut dyn LuaVM) {
 
 
 // R(A) := closure(KPROTO[Bx])
-pub fn closure(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn closure(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, bx) = i.a_bx();
     a += 1;
 
@@ -372,7 +372,7 @@ pub fn closure(i: &Instruction, vm: &mut dyn LuaVM) {
 }
 
 // R(A), ... ,R(A+C-2) := R(A)(R(A+1), ... ,R(A+B-1))
-pub fn call(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn call(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, b, c) = i.abc();
     a += 1;
 
@@ -422,7 +422,7 @@ fn fix_stack(a: isize, vm: &mut dyn LuaVM) {
 }
 
 // return R(A), ... ,R(A+B-2)
-pub fn return_(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn return_(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, b, _) = i.abc();
     a += 1;
 
@@ -440,7 +440,7 @@ pub fn return_(i: &Instruction, vm: &mut dyn LuaVM) {
 }
 
 // R(A), R(A+1), ..., R(A+B-2) = vararg
-pub fn vararg(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn vararg(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, b, _) = i.abc();
     a += 1;
 
@@ -453,7 +453,7 @@ pub fn vararg(i: &Instruction, vm: &mut dyn LuaVM) {
 
 
 // return R(A)(R(A+1), ... ,R(A+B-1))
-pub fn tail_call(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn tail_call(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, b, _) = i.abc();
     a += 1;
 
@@ -465,7 +465,7 @@ pub fn tail_call(i: &Instruction, vm: &mut dyn LuaVM) {
 }
 
 // R(A+1) := R(B); R(A) := R(B)[RK(C)]
-pub fn self_(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn self_(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, mut b, c) = i.abc();
     a += 1;
     b += 1;
@@ -477,7 +477,7 @@ pub fn self_(i: &Instruction, vm: &mut dyn LuaVM) {
 }
 
 // R(A) := UpValue[B][RK(C)]
-pub fn get_tab_up(i: &Instruction, vm: &mut dyn LuaVM) {
+pub(crate) fn get_tab_up(i: &Instruction, vm: &mut dyn LuaVM) {
     let (mut a, _, c) = i.abc();
     a += 1;
 

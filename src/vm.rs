@@ -47,7 +47,7 @@ mod tests {
             } else if ls.is_string(i) {
                 print!("{}", ls.to_string(i));
             } else {
-                print!("{}", ls.get(i));
+                print!("{}", ls.get(i).borrow());
             }
             if i < nargs {
                 print!("\t")

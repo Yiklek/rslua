@@ -1,5 +1,6 @@
 use crate::{impl_enum_from, op};
 use crate::api::LuaVM;
+use crate::state::LuaState;
 
 /*
  31       22       13       5    0
@@ -91,11 +92,11 @@ static OPCODES: once_cell::sync::Lazy<[OpCode; 47]> = once_cell::sync::Lazy::new
         OpCode::new(0, 1, OpArgMode::N, OpArgMode::N, OpMode::ABx, "LOADKX  ", op::load_kx), // R(A) := Kst(extra arg)
         OpCode::new(0, 1, OpArgMode::U, OpArgMode::U, OpMode::ABC, "LOADBOOL", op::load_bool), // R(A) := (bool)B; if (C) pc++
         OpCode::new(0, 1, OpArgMode::U, OpArgMode::N, OpMode::ABC, "LOADNIL ", op::load_nil), // R(A), R(A+1), ..., R(A+B) := nil
-        OpCode::new(0, 1, OpArgMode::U, OpArgMode::N, OpMode::ABC, "GETUPVAL", UNIMPLEMENTED_ACTION), // R(A) := UpValue[B]
+        OpCode::new(0, 1, OpArgMode::U, OpArgMode::N, OpMode::ABC, "GETUPVAL", op::get_up_val), // R(A) := UpValue[B]
         OpCode::new(0, 1, OpArgMode::U, OpArgMode::K, OpMode::ABC, "GETTABUP", op::get_tab_up), // R(A) := UpValue[B][RK(C)]
         OpCode::new(0, 1, OpArgMode::R, OpArgMode::K, OpMode::ABC, "GETTABLE", op::get_table), // R(A) := R(B)[RK(C)]
-        OpCode::new(0, 1, OpArgMode::K, OpArgMode::K, OpMode::ABC, "SETTABUP", UNIMPLEMENTED_ACTION), // UpValue[A][RK(B)] := RK(C)
-        OpCode::new(0, 1, OpArgMode::U, OpArgMode::N, OpMode::ABC, "SETUPVAL", UNIMPLEMENTED_ACTION), // UpValue[B] := R(A)
+        OpCode::new(0, 1, OpArgMode::K, OpArgMode::K, OpMode::ABC, "SETTABUP", op::set_tab_up), // UpValue[A][RK(B)] := RK(C)
+        OpCode::new(0, 1, OpArgMode::U, OpArgMode::N, OpMode::ABC, "SETUPVAL", op::set_up_val), // UpValue[B] := R(A)
         OpCode::new(0, 1, OpArgMode::K, OpArgMode::K, OpMode::ABC, "SETTABLE", op::set_table), // R(A)[RK(B)] := RK(C)
         OpCode::new(0, 1, OpArgMode::U, OpArgMode::U, OpMode::ABC, "NEWTABLE", op::new_table), // R(A) := {} (size = B,C)
         OpCode::new(0, 1, OpArgMode::R, OpArgMode::K, OpMode::ABC, "SELF    ", op::self_), // R(A+1) := R(B); R(A) := R(B)[RK(C)]
@@ -207,7 +208,7 @@ impl Instruction{
     pub fn ax(&self) -> UnSignedOperand {
         (self.0 >> OP_CODE_LEN) as UnSignedOperand
     }
-    pub(crate) fn execute(&self, vm: &mut dyn LuaVM) {
+    pub(crate) fn execute(&self, vm: &mut LuaState) {
         let action = self.op_code().action;
         action(self, vm);
     }

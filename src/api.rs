@@ -1,16 +1,18 @@
-use crate::api::LuaValue::Integer;
-use crate::arith;
-use crate::arith::{random, ArithOp, CompareOp};
-use crate::chunk::{Constant, ProtoType};
-use crate::instruction::RealInstruction;
-use crate::vm::PCAddr;
-use bytes::Bytes;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::rc::Rc;
+
+use bytes::Bytes;
+
+use crate::api::LuaValue::Integer;
+use crate::arith;
+use crate::arith::{ArithOp, CompareOp, random};
+use crate::chunk::{Constant, ProtoType};
+use crate::instruction::RealInstruction;
+use crate::vm::PCAddr;
 
 pub(crate) trait LuaApi {
     /* basic stack manipulation */
@@ -55,6 +57,7 @@ pub(crate) trait LuaApi {
     fn push_number(&mut self, n: f64);
     fn push_string(&mut self, s: String);
     fn push_rust_function(&mut self, f: RustFn);
+    fn push_rust_closure(&mut self, f: RustFn, upv: usize);
     fn push_global_table(&mut self);
     /* comparison and arithmetic functions */
     fn arith(&mut self, op: ArithOp);
@@ -89,6 +92,7 @@ pub(crate) trait LuaVM: LuaApi {
     fn register_count(&self) -> usize;
     fn load_vararg(&mut self, n: isize);
     fn load_proto(&mut self, idx: usize);
+    fn close_upv(&mut self, idx: isize);
 }
 
 #[derive(Clone, Debug)]
@@ -212,6 +216,7 @@ fn to_index(key: &LuaValue) -> Option<usize> {
 pub(crate) struct Closure {
     pub(crate) proto: Rc<ProtoType>,
     pub(crate) rust_fn: Option<RustFn>,
+    pub(crate) up_values: Vec<SharedLuaValue>,
     rdm: usize,
 }
 
@@ -219,7 +224,8 @@ impl Debug for Closure {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Closure")
             .field("proto", &*self.proto)
-            .field("rust_fn", &"rust_fn")
+            .field("rust_fn", &self.rust_fn.is_some())
+            .field("up_values", &self.up_values)
             .field("rdm", &self.rdm)
             .finish()
     }
@@ -234,16 +240,27 @@ impl Hash for Closure {
 
 impl Closure {
     pub(crate) fn with_proto(proto: Rc<ProtoType>) -> Closure {
+        let up_values_len = proto.up_values.len();
         Closure {
             proto,
             rust_fn: None,
+            up_values: vec![LuaValue::None.into(); up_values_len],
             rdm: random(),
         }
     }
-    pub(crate) fn with_func(f: RustFn) -> Closure {
+    pub(crate) fn with_func(f: RustFn, up_values_len: usize) -> Closure {
         Closure {
             proto: Rc::new(ProtoType::new_fake()),
             rust_fn: Some(f),
+            up_values: vec![LuaValue::None.into(); up_values_len],
+            rdm: random(),
+        }
+    }
+    pub(crate) fn with_func_upv(f: RustFn, upv: Vec<SharedLuaValue>) -> Closure {
+        Closure {
+            proto: Rc::new(ProtoType::new_fake()),
+            rust_fn: Some(f),
+            up_values: upv,
             rdm: random(),
         }
     }
@@ -314,7 +331,7 @@ impl Display for LuaValue {
             LuaValue::Number(f) => f.to_string(),
             LuaValue::Integer(i) => i.to_string(),
             LuaValue::String(s) => format!("\"{}\"", s),
-            LuaValue::Table(_) => "Table".to_string(),
+            LuaValue::Table(t) => { return t.fmt(f) },
             LuaValue::Function => "Function".to_string(),
             LuaValue::Closure(_) => "Function".to_string(),
             LuaValue::UserData => "UserData".to_string(),
@@ -376,18 +393,28 @@ impl LuaValue {
         }
     }
 }
-#[derive(Clone, Eq, PartialEq, Debug)]
+
+#[derive(Clone, Eq, PartialEq)]
 pub(crate) struct SharedLuaValue(Rc<RefCell<LuaValue>>);
+
 impl Display for SharedLuaValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         <LuaValue as Display>::fmt(self.borrow().deref(), f)
     }
 }
+
+impl Debug for SharedLuaValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        <LuaValue as Display>::fmt(self.borrow().deref(), f)
+    }
+}
+
 impl Hash for SharedLuaValue {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.borrow().hash(state)
     }
 }
+
 impl SharedLuaValue {
     #[inline]
     pub(crate) fn borrow(&self) -> Ref<LuaValue> {
@@ -397,6 +424,15 @@ impl SharedLuaValue {
     pub(crate) fn borrow_mut(&self) -> RefMut<LuaValue> {
         self.0.borrow_mut()
     }
+    ///操作闭包需要共享值，必须修改rc内部的值
+    pub(crate) fn set_val(&mut self, val: SharedLuaValue) {
+        let v = (&*val.borrow()).clone();
+        *self.0.borrow_mut() = v
+    }
+    ///操作寄存器直接设置
+    pub(crate) fn set_rc(&mut self, rc: SharedLuaValue) {
+        self.0 = rc.0
+    }
 }
 
 impl From<Rc<RefCell<LuaValue>>> for SharedLuaValue {
@@ -404,6 +440,7 @@ impl From<Rc<RefCell<LuaValue>>> for SharedLuaValue {
         SharedLuaValue(val)
     }
 }
+
 impl From<LuaValue> for SharedLuaValue {
     fn from(val: LuaValue) -> Self {
         SharedLuaValue(Rc::new(RefCell::new(val)))

@@ -1,6 +1,8 @@
-use crate::instruction::Instruction;
-use crate::api::{LuaVM};
+use crate::api::LuaVM;
 use crate::arith::{ArithOp, CompareOp, fb2int};
+use crate::instruction::Instruction;
+use crate::state::upv_index;
+
 /*由于lua指令操作数的长度都没有达到32位，进行类型转换不会出溢出等问题*/
 
 
@@ -19,7 +21,7 @@ pub(crate) fn jmp(i: &Instruction, vm: &mut dyn LuaVM) {
 
     vm.add_pc(sbx as isize);
     if a != 0 {
-        panic!("todo: jmp!");
+        vm.close_upv(a as isize)
     }
 }
 
@@ -478,12 +480,37 @@ pub(crate) fn self_(i: &Instruction, vm: &mut dyn LuaVM) {
 
 // R(A) := UpValue[B][RK(C)]
 pub(crate) fn get_tab_up(i: &Instruction, vm: &mut dyn LuaVM) {
-    let (mut a, _, c) = i.abc();
+    let (mut a, mut b, c) = i.abc();
+    a += 1;
+    b += 1;
+
+    vm.get_rk(c as isize);
+    vm.get_table(upv_index(b as isize));
+    vm.replace(a as isize);
+}
+
+// UpValue[A][RK(B)] := R(C)
+pub(crate) fn set_tab_up(i: &Instruction, vm: &mut dyn LuaVM) {
+    let (mut a, mut b, c) = i.abc();
     a += 1;
 
-    vm.push_global_table();
+    vm.get_rk(b as isize);
     vm.get_rk(c as isize);
-    vm.get_table(-2);
-    vm.replace(a as isize);
-    vm.pop(1);
+    vm.set_table(upv_index(a as isize))
+}
+
+// R(A) := UpValue[B]
+pub(crate) fn get_up_val(i: &Instruction, vm: &mut dyn LuaVM) {
+    let (mut a, mut b, _) = i.abc();
+    a += 1;
+    b += 1;
+    vm.copy(upv_index(b as isize), a as isize);
+}
+
+// UpValue[B] := R(A)
+pub(crate) fn set_up_val(i: &Instruction, vm: &mut dyn LuaVM) {
+    let (mut a, mut b, _) = i.abc();
+    a += 1;
+    b += 1;
+    vm.copy(a as isize, upv_index(b as isize));
 }

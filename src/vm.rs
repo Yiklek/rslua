@@ -1,21 +1,22 @@
-use crate::chunk::{read_file};
-use crate::state::{LuaState};
-use crate::api::{LuaApi};
+use crate::api::LuaApi;
+use crate::chunk::read_file;
+use crate::state::LuaState;
 
 pub type PCAddr = isize;
 
 
-pub fn lua_main(file: &dyn ToString){
+pub fn lua_main(file: &dyn ToString) {
     let mut state = LuaState::new();
     state.load(read_file(file), file.to_string().as_str(), "b");
-    state.call(0,0);
+    state.call(0, 0);
 }
+
 #[cfg(test)]
 mod tests {
-    use crate::vm::{lua_main};
+    use crate::api::{LuaApi, LuaVM};
     use crate::chunk::{print_chunk, read_file};
-    use crate::api::{LuaVM, LuaApi};
     use crate::state::LuaState;
+    use crate::vm::lua_main;
 
     #[test]
     fn simple_vm() {
@@ -56,12 +57,23 @@ mod tests {
         println!();
         return 0;
     }
+
     #[test]
-    fn rust_fn(){
+    fn rust_fn() {
         let file = &"tests/rust_fn.out";
         let mut state = LuaState::new();
-        state.register("print".to_string(),print);
+        state.register("print".to_string(), print);
         state.load(read_file(file), file.to_string().as_str(), "b");
-        state.call(0,0);
+        state.call(0, 0);
+    }
+
+    #[test]
+    fn upv() {
+        let file = &"tests/upvalue.out";
+        print_chunk(file);
+        let mut state = LuaState::new();
+        state.register("print".to_string(), print);
+        state.load(read_file(file), file.to_string().as_str(), "b");
+        state.call(0, 0);
     }
 }

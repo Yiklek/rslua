@@ -153,7 +153,7 @@ pub const OPS: &'static [(fn(i64, i64) -> i64, fn(f64, f64) -> f64)] = &[
 ];
 
 #[repr(u8)]
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone)]
 pub enum ArithOp {
     ADD = 0,
     // +
@@ -214,7 +214,7 @@ pub(crate) fn arith(a: &LuaValue, b: &LuaValue, op: ArithOp) -> Option<LuaValue>
 }
 
 #[repr(u8)]
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone)]
 pub enum CompareOp {
     EQ,
     // ==
@@ -320,9 +320,9 @@ pub fn random() -> usize {
 }
 #[cfg(test)]
 mod tests {
-    use crate::state::{LuaState, print_stack, format_stack};
     use crate::api::LuaApi;
     use crate::arith::{ArithOp, CompareOp};
+    use crate::state::{format_stack, LuaState, print_stack};
 
     #[test]
     fn arith() {

@@ -7,9 +7,9 @@ Please feel free to give me PR.
 
 - [x] parse binary chunk
 - [x] lua stack and lua state
-- [ ] vm instruction(41/47)
+- [ ] vm instruction(44/47)
 - [x] invoke rust function
-- [ ] upvalue support
+- [x] upvalue support
 - [ ] meta programming
 - [ ] compiler
 - [ ] stdlib

@@ -1,7 +1,9 @@
-use std::rc::Rc;
-use bytes::{Bytes, Buf};
-use crate::instruction::{RealInstruction, Instruction, OpMode, OpArgMode};
 use std::io::Read;
+use std::rc::Rc;
+
+use bytes::{Buf, Bytes};
+
+use crate::instruction::{Instruction, OpArgMode, OpMode, RealInstruction};
 
 mod constants {
     pub const LUA_SIGNATURE: [u8; 4] = [0x1b, 0x4c, 0x75, 0x61];
@@ -352,19 +354,17 @@ fn print_operands(i: Instruction) {
 
 fn print_detail(p: &ProtoType) {
     print!("constants ({}):\n", p.constants.len());
-    for i in 0..p.constants.len() {
-        print!("\t{}\t{:?}\n", i + 1, p.constants[i]);
+    for (i, c) in p.constants.iter().enumerate() {
+        print!("\t{}\t{:?}\n", i + 1, c);
     }
 
     print!("locals ({}):\n", p.loc_vars.len());
-    for i in 0..p.loc_vars.len() {
-        let var = &p.loc_vars[i];
-        print!("\t{}\t{}\t{}\t{}\n", i, var.var_name, var.start_pc + 1, var.end_pc + 1);
+    for (i, l) in p.loc_vars.iter().enumerate() {
+        print!("\t{}\t{}\t{}\t{}\n", i, l.var_name, l.start_pc + 1, l.end_pc + 1);
     }
 
     print!("upvalues ({}):\n", p.up_values.len());
-    for i in 0..p.up_values.len() {
-        let value = &p.up_values[i];
+    for (i, value) in p.up_values.iter().enumerate() {
         print!("\t{}\t{}\t{}\t{}\n", i, p.up_value_names[i], value.in_stack, value.idx);
     }
 }
@@ -374,13 +374,11 @@ pub fn print_chunk(path: &dyn ToString) {
     let mut data = Vec::new();
     file.read_to_end(&mut data).unwrap();
     let bytes = Bytes::from(data);
-    let arc = un_dump(bytes);
-    let a = arc;
-    list(&*a);
+    list(&*un_dump(bytes));
 }
 #[cfg(test)]
 mod tests {
-    use crate::chunk::{un_dump, list, print_chunk};
+    use crate::chunk::{list, print_chunk, un_dump};
 
     #[test]
     fn read_chunk() {

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
@@ -17,6 +18,7 @@ pub(crate) struct LuaStack {
     var_args: Vec<SharedLuaValue>,
     pc: PCAddr,
     registry: SharedLuaValue,
+    open_upv: HashMap<isize, SharedLuaValue>
 }
 
 
@@ -28,6 +30,7 @@ impl LuaStack {
             closure,
             var_args: vec![],
             pc: 0,
+            open_upv: HashMap::new()
         }
     }
 
@@ -134,9 +137,6 @@ impl LuaStack {
     // }
 
     pub fn set(&mut self, idx: isize, val: SharedLuaValue) {
-        if idx == 1 && val.borrow().is_nil() {
-            panic!("{}", self.pc)
-        }
         if idx < LUA_REGISTRY_INDEX {
             let uv_idx = LUA_REGISTRY_INDEX - idx - 1;
             if uv_idx < self.closure.up_values.len() as isize {
@@ -355,11 +355,18 @@ impl LuaVM for LuaState {
     fn load_proto(&mut self, idx: usize) {
         let proto = self.stack().closure.proto.proto_types[idx].clone();
         let mut closure = Closure::with_proto(proto);
-        for upv in &closure.proto.up_values {
+        for (i, upv) in closure.proto.up_values.iter().enumerate() {
             if upv.in_stack == 1 {
-                closure.up_values[upv.idx as usize].set_rc(self.stack().get(upv.idx as isize + 1));
+                if self.stack().open_upv.contains_key(&(upv.idx as isize)) {
+                    // if self.stack().open_upv.contains(&(upv.idx as isize)){
+                    closure.up_values[i].set_rc(self.stack().get(upv.idx as isize + 1));
+                } else {
+                    let value = self.stack().get(upv.idx as isize + 1);
+                    closure.up_values[i].set_rc(value.clone());
+                    self.stack_mut().open_upv.insert(upv.idx as isize, value);
+                }
             } else {
-                closure.up_values[upv.idx as usize].set_rc(self.stack().closure.up_values[upv.idx as usize].clone());
+                closure.up_values[i].set_rc(self.stack().closure.up_values[upv.idx as usize].clone());
             }
         }
         let closure = LuaValue::Closure(closure);
@@ -634,7 +641,7 @@ impl LuaApi for LuaState {
         } else {
             let a = stack.get(idx1);
             let b = stack.get(idx2);
-            if let Some(result) = compare(a.borrow().deref(), b.borrow().deref(), op) {
+            if let Some(result) = compare(&*a.borrow(), &*b.borrow(), op) {
                 return result;
             }
             panic!("comparison error!")

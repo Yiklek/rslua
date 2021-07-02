@@ -3,6 +3,8 @@
 --- Created by Yiklek.
 --- DateTime: 2021/6/29 下午5:37
 ---
+local step = 1
+local start = 0
 local function assert(v)
     if not v then
         fail()
@@ -10,8 +12,10 @@ local function assert(v)
 end
 function newCounter()
     local count = 0
+    -- not support the following upvalue
+    --local count = start
     return function()
-        count = count + 1
+        count = count + step
         return count
     end
 end

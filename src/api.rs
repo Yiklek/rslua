@@ -426,8 +426,7 @@ impl SharedLuaValue {
     }
     ///操作闭包需要共享值，必须修改rc内部的值
     pub(crate) fn set_val(&mut self, val: SharedLuaValue) {
-        let v = (&*val.borrow()).clone();
-        *self.0.borrow_mut() = v
+        *self.0.borrow_mut() = (&*val.borrow()).clone();
     }
     ///操作寄存器直接设置
     pub(crate) fn set_rc(&mut self, rc: SharedLuaValue) {
